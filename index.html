@@ -417,12 +417,14 @@
             // Populate searchable dropdown for programa (General)
             window.programasData = programas;
             initializeSearchableSelect('filterProgram', programas, (selected) => {
+                updateDynamicFilters('general');
                 renderAllSheets();
             });
 
             // Populate searchable dropdown for programa (Marketing)
             window.programasMktData = programas;
             initializeSearchableSelect('filterProgramMkt', programas, (selected) => {
+                updateDynamicFilters('marketing');
                 renderMarketingSheet();
             });
 
@@ -435,8 +437,14 @@
             // Populate searchable dropdown for campanas
             window.campanasData = campanas;
             initializeSearchableSelect('filterCampaign', campanas, (selected) => {
+                updateDynamicFilters('marketing');
                 renderMarketingSheet();
             });
+
+            // Store all data for dynamic filtering
+            window.allProgramas = programas;
+            window.allCampanas = campanas;
+            window.allYears = years;
         }
 
         function setDateRange(range) {
@@ -494,13 +502,33 @@
             document.getElementById('filterDateFromMkt').value = firstDayOfMonth.toISOString().split('T')[0];
             document.getElementById('filterDateToMkt').value = today.toISOString().split('T')[0];
 
-            document.getElementById('filterDateFrom').addEventListener('change', renderAllSheets);
-            document.getElementById('filterDateTo').addEventListener('change', renderAllSheets);
-            document.getElementById('filterYear').addEventListener('change', renderAllSheets);
+            // General sheet: Update dynamic filters when date or year changes
+            document.getElementById('filterDateFrom').addEventListener('change', () => {
+                updateDynamicFilters('general');
+                renderAllSheets();
+            });
+            document.getElementById('filterDateTo').addEventListener('change', () => {
+                updateDynamicFilters('general');
+                renderAllSheets();
+            });
+            document.getElementById('filterYear').addEventListener('change', () => {
+                updateDynamicFilters('general');
+                renderAllSheets();
+            });
 
-            document.getElementById('filterDateFromMkt').addEventListener('change', renderMarketingSheet);
-            document.getElementById('filterDateToMkt').addEventListener('change', renderMarketingSheet);
-            document.getElementById('filterYearMkt').addEventListener('change', renderMarketingSheet);
+            // Marketing sheet: Update dynamic filters when date or year changes
+            document.getElementById('filterDateFromMkt').addEventListener('change', () => {
+                updateDynamicFilters('marketing');
+                renderMarketingSheet();
+            });
+            document.getElementById('filterDateToMkt').addEventListener('change', () => {
+                updateDynamicFilters('marketing');
+                renderMarketingSheet();
+            });
+            document.getElementById('filterYearMkt').addEventListener('change', () => {
+                updateDynamicFilters('marketing');
+                renderMarketingSheet();
+            });
         }
 
         function fmt(v) { return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(parseFloat(v) || 0); }
@@ -580,6 +608,111 @@
                 renderDropdown('');
                 onSelect('');
             });
+        }
+
+        function updateDynamicFilters(sheetType) {
+            if (sheetType === 'general') {
+                // General sheet: Año → Programa
+                const selectedYear = document.getElementById('filterYear').value;
+                const dateFrom = document.getElementById('filterDateFrom').value;
+                const dateTo = document.getElementById('filterDateTo').value;
+                const fromDate = dateFrom ? new Date(dateFrom) : new Date(1900, 0, 1);
+                const toDate = dateTo ? new Date(dateTo) : new Date(2099, 11, 31);
+                toDate.setHours(23, 59, 59, 999);
+
+                // Filter data based on current selections
+                let availableData = allData.filter(r => {
+                    const salesAmount = parseFloat((r['$R & PROY exp pesos'] || '0').toString().replace(/[^\d.-]/g, '')) || 0;
+                    if (salesAmount <= 0 || r.ESTADO === 'Retirado') return false;
+
+                    // Apply year filter if selected
+                    if (selectedYear && r['AÑO CIERRE DE VENTA'] && r['AÑO CIERRE DE VENTA'].trim() !== selectedYear) return false;
+
+                    // Apply date filter
+                    if (r['AJUSTES VENCIMIENTO']) {
+                        const dateStr = (r['AJUSTES VENCIMIENTO'] || '').trim();
+                        const dateMatch = dateStr.match(/^(\d+)\/(\d+)\/(\d{4})$/);
+                        if (dateMatch) {
+                            const month = parseInt(dateMatch[1]) - 1;
+                            const day = parseInt(dateMatch[2]);
+                            const dateYear = parseInt(dateMatch[3]);
+                            const rowDate = new Date(dateYear, month, day);
+                            if (rowDate < fromDate || rowDate > toDate) return false;
+                        }
+                    }
+
+                    return true;
+                });
+
+                // Extract available programs from filtered data
+                const availableProgramas = [...new Set(availableData.filter(r => r.PROGRAMA).map(r => r.PROGRAMA).sort())];
+
+                // Reinitialize programa dropdown with available options
+                window.programasData = availableProgramas;
+                initializeSearchableSelect('filterProgram', availableProgramas, (selected) => {
+                    updateDynamicFilters('general');
+                    renderAllSheets();
+                });
+            } else if (sheetType === 'marketing') {
+                // Marketing sheet: Año → Campaña → Programa
+                const selectedYear = document.getElementById('filterYearMkt').value;
+                const selectedCampaign = document.getElementById('filterCampaignInput').value;
+                const dateFrom = document.getElementById('filterDateFromMkt').value;
+                const dateTo = document.getElementById('filterDateToMkt').value;
+                const fromDate = dateFrom ? new Date(dateFrom) : new Date(1900, 0, 1);
+                const toDate = dateTo ? new Date(dateTo) : new Date(2099, 11, 31);
+                toDate.setHours(23, 59, 59, 999);
+
+                // Filter data based on current selections
+                let availableData = allData.filter(r => {
+                    const salesAmount = parseFloat((r['$R & PROY exp pesos'] || '0').toString().replace(/[^\d.-]/g, '')) || 0;
+                    if (salesAmount <= 0 || r.ESTADO === 'Retirado') return false;
+
+                    // Apply year filter if selected
+                    if (selectedYear && r['AÑO CIERRE DE VENTA'] && r['AÑO CIERRE DE VENTA'].trim() !== selectedYear) return false;
+
+                    // Apply campaign filter if selected
+                    if (selectedCampaign && (!r['CAMPAÑA( Juli)'] || r['CAMPAÑA( Juli)'].trim() !== selectedCampaign)) return false;
+
+                    // Apply date filter
+                    if (r['AJUSTES VENCIMIENTO']) {
+                        const dateStr = (r['AJUSTES VENCIMIENTO'] || '').trim();
+                        const dateMatch = dateStr.match(/^(\d+)\/(\d+)\/(\d{4})$/);
+                        if (dateMatch) {
+                            const month = parseInt(dateMatch[1]) - 1;
+                            const day = parseInt(dateMatch[2]);
+                            const dateYear = parseInt(dateMatch[3]);
+                            const rowDate = new Date(dateYear, month, day);
+                            if (rowDate < fromDate || rowDate > toDate) return false;
+                        }
+                    }
+
+                    return true;
+                });
+
+                // Extract available campaigns from filtered data
+                const availableCampanas = [...new Set(availableData
+                    .filter(r => r['CAMPAÑA( Juli)'] && r['CAMPAÑA( Juli)'].trim() && r['CAMPAÑA( Juli)'] !== 'No Disponible' && !r['CAMPAÑA( Juli)'].toLowerCase().includes('n/a') && r['CAMPAÑA( Juli)'] !== 'Sin Datos')
+                    .map(r => r['CAMPAÑA( Juli)'])
+                    .sort())];
+
+                // Extract available programs from filtered data
+                const availableProgramas = [...new Set(availableData.filter(r => r.PROGRAMA).map(r => r.PROGRAMA).sort())];
+
+                // Reinitialize campaign dropdown with available options
+                window.campanasData = availableCampanas;
+                initializeSearchableSelect('filterCampaign', availableCampanas, (selected) => {
+                    updateDynamicFilters('marketing');
+                    renderMarketingSheet();
+                });
+
+                // Reinitialize programa dropdown with available options
+                window.programasMktData = availableProgramas;
+                initializeSearchableSelect('filterProgramMkt', availableProgramas, (selected) => {
+                    updateDynamicFilters('marketing');
+                    renderMarketingSheet();
+                });
+            }
         }
 
         function renderAllSheets() { renderGeneralSheet(); renderEstudianteSheet(); renderMarketingSheet(); }
